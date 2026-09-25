@@ -14,11 +14,11 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.dialects.postgresql import Range
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from slotwise.availability import Interval, windows_for_day
-from slotwise.db import EXCLUSION_VIOLATION, sqlstate
+from slotwise.db import DEADLOCK_DETECTED, EXCLUSION_VIOLATION, sqlstate
 from slotwise.errors import AppError, NotFound, SlotTaken, ValidationFailed, VersionConflict
 from slotwise.models import Booking, BookingStatus, Service
 from slotwise.pagination import Cursor
@@ -94,7 +94,7 @@ class BookingService:
                 notes=notes,
             )
         )
-        async with self._overlap_is_409():
+        async with self._overlap_is_409(staff_id):
             await self.session.flush()
         self.audit.record(
             principal,
@@ -123,7 +123,7 @@ class BookingService:
         start = _as_utc(start)
         period, ends_at = await self._validated_period(service, booking.staff_id, start, now)
         old_start = booking.starts_at
-        async with self._overlap_is_409():
+        async with self._overlap_is_409(booking.staff_id):
             updated = await self.bookings.update_versioned(
                 booking_id, version, period=period, starts_at=start, ends_at=ends_at
             )
@@ -247,12 +247,18 @@ class BookingService:
         return Range(start, block_end, bounds="[)"), ends_at
 
     @asynccontextmanager
-    async def _overlap_is_409(self) -> AsyncIterator[None]:
-        """Translate the exclusion-constraint violation into a clean 409 slot_taken."""
+    async def _overlap_is_409(self, staff_id: UUID) -> AsyncIterator[None]:
+        """Write to a staff calendar; an overlap (or an overlap deadlock) becomes 409 slot_taken.
+
+        The per-staff advisory lock prevents the exclusion-check deadlock in the first place (found
+        by the k6 booking rush with two API replicas). 40P01 is still mapped as a safety net: a
+        deadlock here means another transaction was writing an overlapping period for this staff.
+        """
+        await self.bookings.lock_staff_schedule(staff_id)
         try:
             yield
-        except IntegrityError as exc:
-            if sqlstate(exc) == EXCLUSION_VIOLATION:
+        except DBAPIError as exc:
+            if sqlstate(exc) in (EXCLUSION_VIOLATION, DEADLOCK_DETECTED):
                 raise SlotTaken("that slot was just taken; pick another") from exc
             raise
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, tuple_, update
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.dialects.postgresql import Range
 
 from slotwise.models import Booking, BookingStatus
@@ -16,6 +16,22 @@ class BookingRepository(TenantScopedRepository):
         if for_update:
             stmt = stmt.with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_staff_schedule(self, staff_id: UUID) -> None:
+        """Serialise writes to one staff member's calendar until this transaction ends.
+
+        Two concurrent INSERTs with overlapping periods can each wait on the other's uncommitted
+        row while Postgres checks the exclusion constraint, and Postgres then aborts one with
+        40P01 deadlock_detected (after deadlock_timeout, 1 s by default). Taking a per-staff
+        transaction-level advisory lock first turns that into a short, ordered wait. The
+        exclusion constraint is still what guarantees correctness; this only removes the deadlock.
+        """
+        key = f"slotwise:booking:{self.tenant_id}:{staff_id}"
+        # no_autoflush: the lock must be held *before* a pending INSERT is sent, not after.
+        with self.session.no_autoflush:
+            await self.session.execute(
+                select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0)))
+            )
 
     def add(self, booking: Booking) -> Booking:
         booking.tenant_id = self.tenant_id
