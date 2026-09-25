@@ -34,7 +34,7 @@ async def list_customers(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
 ) -> Page[CustomerOut]:
-    rows, next_cursor = await CustomerService(session, tenant_of(principal)).list(
+    rows, next_cursor = await CustomerService(session, tenant_of(principal)).page(
         limit=limit, cursor=cursor
     )
     return Page(items=[CustomerOut.model_validate(r) for r in rows], next_cursor=next_cursor)

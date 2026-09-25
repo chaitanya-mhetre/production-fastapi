@@ -134,3 +134,54 @@ def make_tenant(client: httpx.AsyncClient, superadmin_headers: dict[str, str]) -
         return TenantCtx(id=resp.json()["id"], slug=slug, admin_token=token, admin_email=email)
 
     return _make
+
+
+@dataclass
+class CatalogCtx:
+    service_id: str
+    staff_ids: list[str]
+
+
+MakeCatalog = Callable[..., Awaitable[CatalogCtx]]
+
+
+@pytest.fixture
+def make_catalog(client: httpx.AsyncClient) -> MakeCatalog:
+    """A 30-minute service with a 10-minute buffer, N staff working Mon–Fri 09:00–17:00."""
+
+    async def _make(
+        t: TenantCtx, staff_count: int = 1, duration: int = 30, buffer: int = 10
+    ) -> CatalogCtx:
+        svc = await client.post(
+            "/v1/services",
+            headers=t.headers,
+            json={
+                "name": "Consultation",
+                "duration_min": duration,
+                "price_paise": 50000,
+                "buffer_min": buffer,
+            },
+        )
+        assert svc.status_code == 201, svc.text
+        staff_ids = []
+        for i in range(staff_count):
+            st = await client.post(
+                "/v1/staff",
+                headers=t.headers,
+                json={"display_name": f"Dr {i}", "service_ids": [svc.json()["id"]]},
+            )
+            assert st.status_code == 201, st.text
+            wh = await client.put(
+                f"/v1/staff/{st.json()['id']}/working-hours",
+                headers=t.headers,
+                json={
+                    "items": [
+                        {"weekday": d, "start_time": "09:00", "end_time": "17:00"} for d in range(5)
+                    ]
+                },
+            )
+            assert wh.status_code == 200, wh.text
+            staff_ids.append(st.json()["id"])
+        return CatalogCtx(service_id=svc.json()["id"], staff_ids=staff_ids)
+
+    return _make

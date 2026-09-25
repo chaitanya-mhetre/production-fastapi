@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from slotwise.api.routers import auth, customers, health, tenants
+from slotwise.api.routers import auth, catalog, customers, health, tenants
 from slotwise.config import Settings, get_settings
 from slotwise.context import request_id_var, tenant_id_var
 from slotwise.db import Database
@@ -90,7 +90,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=422,
         )
 
-    for router in (health.router, auth.router, tenants.router, customers.router):
+    for router in (
+        health.router,
+        auth.router,
+        tenants.router,
+        customers.router,
+        catalog.router,
+    ):
         app.include_router(router)
     return app
 

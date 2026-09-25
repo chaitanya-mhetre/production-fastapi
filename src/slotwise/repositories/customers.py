@@ -14,7 +14,7 @@ class CustomerRepository(TenantScopedRepository):
         )
         return result.scalar_one_or_none()
 
-    async def list(self, *, limit: int, cursor: Cursor | None = None) -> list[Customer]:
+    async def find_all(self, *, limit: int, cursor: Cursor | None = None) -> list[Customer]:
         stmt = select(Customer).where(Customer.tenant_id == self.tenant_id)
         if cursor:
             stmt = stmt.where(

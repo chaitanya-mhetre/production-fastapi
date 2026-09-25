@@ -36,8 +36,8 @@ class CustomerService:
             raise NotFound("customer not found")
         return customer
 
-    async def list(self, *, limit: int, cursor: str | None) -> tuple[list[Customer], str | None]:
-        rows = await self.repo.list(
+    async def page(self, *, limit: int, cursor: str | None) -> tuple[list[Customer], str | None]:
+        rows = await self.repo.find_all(
             limit=limit + 1, cursor=Cursor.decode(cursor) if cursor else None
         )
         next_cursor = (
