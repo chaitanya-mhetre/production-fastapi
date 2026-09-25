@@ -75,7 +75,7 @@ async def test_one_request_is_one_trace_across_api_and_database(
 
     assert isinstance(owner_engine, AsyncEngine)
     async with owner_engine.connect() as conn:
-        stored = (
+        stored: str = (
             await conn.execute(
                 text("SELECT trace_id FROM audit_logs WHERE action = 'customer.created'")
             )
