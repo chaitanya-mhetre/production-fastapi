@@ -2,6 +2,7 @@
 # Run a k6 scenario in Docker against the local stack, with a RAM guard for small laptops.
 #   loadtest/run.sh <label> <env-file> [extra k6 args...]
 # Writes loadtest/results/<label>.json (k6 summary) and <label>.txt (console output).
+# K6_NETWORK=slotwise_default runs k6 inside the compose network (to reach scaled `api` replicas).
 set -euo pipefail
 label=$1; envfile=$2; shift 2
 min_avail=${LOADTEST_MIN_AVAIL_MB:-1500}
@@ -17,7 +18,7 @@ envargs=(); while IFS= read -r line; do [ -n "$line" ] && envargs+=(-e "$line");
     sleep 2
   done ) &
 guard=$!
-docker run --rm --name k6run --user "$(id -u):$(id -g)" --network host -v "$PWD/loadtest:/lt" "${envargs[@]}" "$@" \
+docker run --rm --name k6run --user "$(id -u):$(id -g)" --network "${K6_NETWORK:-host}" -v "$PWD/loadtest:/lt" "${envargs[@]}" "$@" \
   grafana/k6 run --summary-export "/lt/results/${label}.json" /lt/k6/booking_rush.js \
   2>&1 | tee "loadtest/results/${label}.txt"
 kill "$guard" 2>/dev/null || true

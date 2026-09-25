@@ -1,0 +1,9 @@
+# Horizontal-scaling experiment: lets `api` run as several replicas (no fixed host port).
+# k6 then runs inside the compose network and spreads connections over the replicas via DNS:
+#
+#   docker compose -f docker-compose.yml -f loadtest/docker-compose.loadtest.yml \
+#       -f loadtest/docker-compose.scale.yml --profile full up -d --scale api=2 api nginx
+#   K6_NETWORK=slotwise_default loadtest/run.sh <label> <env-file>   # BASE=http://api:8000
+services:
+  api:
+    ports: !reset []
