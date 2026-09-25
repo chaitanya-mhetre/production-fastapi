@@ -1,0 +1,40 @@
+# Host ports are deliberately in the 5xxxx range so this stack can run next to other local projects.
+name: slotwise
+
+x-app: &app
+  build: .
+  env_file: .env.docker
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: slotwise
+      POSTGRES_PASSWORD: slotwise
+      POSTGRES_DB: slotwise
+    ports: ["55436:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U slotwise"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports: ["56383:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ["58025:8025", "51025:1025"]
+
+volumes:
+  pgdata:

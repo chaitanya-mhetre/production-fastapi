@@ -1,0 +1,74 @@
+[project]
+name = "slotwise"
+version = "0.1.0"
+description = "Slotwise: multi-tenant appointment-booking SaaS backend, hardened for production"
+readme = "README.md"
+authors = [
+    { name = "Chaitanya Mhetre", email = "mhetrechaitanya06@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "argon2-cffi>=25.1.0",
+    "asyncpg>=0.31.0",
+    "boto3>=1.43.102",
+    "celery[redis]>=5.6.3",
+    "cryptography>=50.0.1",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "opentelemetry-api>=1.45.0",
+    "opentelemetry-sdk>=1.45.0",
+    "prometheus-client>=0.26.0",
+    "pydantic-settings>=2.15.0",
+    "pydantic[email]>=2.13.5",
+    "pyjwt>=2.15.0",
+    "python-multipart>=0.0.32",
+    "redis>=5",
+    "sqlalchemy[asyncio]>=2.1.0",
+    "tzdata>=2026.4",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "celery-types>=0.26.0",
+    "hypothesis>=6.168.1",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.16.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "N", "ASYNC", "S"]
+ignore = ["S101", "B008", "N818", "N817"]  # HTTP-style error names; `P` alias for Permission
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+"migrations/**" = ["E501"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore.*", "kombu.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = ["integration: needs Postgres + Redis from docker compose"]
+filterwarnings = ["ignore::DeprecationWarning:celery.*"]
