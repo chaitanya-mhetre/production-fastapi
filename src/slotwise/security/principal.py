@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from slotwise.models import Role
+from slotwise.models import Role, TenantPlan
 from slotwise.security.permissions import ROLE_PERMISSIONS, Permission
 
 
@@ -16,6 +16,7 @@ class Principal:
     role: Role | None = None
     scopes: frozenset[Permission] = frozenset()
     is_superadmin: bool = False
+    plan: TenantPlan | None = None
 
     @property
     def permissions(self) -> frozenset[Permission]:
