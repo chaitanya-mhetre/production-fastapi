@@ -201,6 +201,7 @@ class Booking(Base):
     price_paise: Mapped[int] = mapped_column(BigInteger)
     notes: Mapped[str | None]
     version: Mapped[int] = mapped_column(default=1)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -246,4 +247,83 @@ class ApiKey(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    aggregate_type: Mapped[str]
+    aggregate_id: Mapped[str]
+    event_type: Mapped[str]
+    payload: Mapped[dict[str, Any]]
+    created_at: Mapped[datetime] = created_at_col()
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(default=0)
+    last_error: Mapped[str | None]
+
+
+class ConsumerInbox(Base):
+    __tablename__ = "consumer_inbox"
+
+    consumer: Mapped[str] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("outbox_events.id"), primary_key=True
+    )
+    processed_at: Mapped[datetime] = created_at_col()
+
+
+class WebhookEndpoint(Base):
+    __tablename__ = "webhook_endpoints"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    url: Mapped[str]
+    secret_enc: Mapped[str]
+    events: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    active: Mapped[bool] = mapped_column(default=True)
+    consecutive_failures: Mapped[int] = mapped_column(default=0)
+    disabled_reason: Mapped[str | None]
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class DeliveryStatus(enum.StrEnum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    DEAD = "dead"
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("webhook_endpoints.id"))
+    outbox_event_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("outbox_events.id"))
+    event_type: Mapped[str]
+    status: Mapped[DeliveryStatus] = mapped_column(
+        pg_enum(DeliveryStatus, "delivery_status"), default=DeliveryStatus.PENDING
+    )
+    attempt: Mapped[int] = mapped_column(default=0)
+    status_code: Mapped[int | None]
+    response_ms: Mapped[int | None]
+    last_error: Mapped[str | None]
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    booking_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("bookings.id"))
+    provider: Mapped[str]
+    provider_ref: Mapped[str]
+    amount_paise: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str]
+    raw: Mapped[dict[str, Any]]
     created_at: Mapped[datetime] = created_at_col()
