@@ -1,7 +1,7 @@
 """Create a throwaway pro-plan tenant + catalogue for the k6 booking rush, and print the k6 env.
 
-    docker compose exec api python -m slotwise.cli create-superadmin --email sa@loadtest.example.com \
-        --password loadtest-password-1
+    docker compose exec api python -m slotwise.cli create-superadmin \
+        --email sa@loadtest.example.com --password loadtest-password-1
     LT_SUPERADMIN_EMAIL=sa@loadtest.example.com LT_SUPERADMIN_PASSWORD=loadtest-password-1 \
         uv run python loadtest/bootstrap.py > /tmp/k6.env
 
@@ -74,7 +74,9 @@ def main() -> None:
             201,
         )
         staff = ok(
-            c.post("/v1/staff", headers=h, json={"display_name": "Dr LT", "service_ids": [svc["id"]]}),
+            c.post(
+                "/v1/staff", headers=h, json={"display_name": "Dr LT", "service_ids": [svc["id"]]}
+            ),
             201,
         )
         ok(
@@ -93,7 +95,11 @@ def main() -> None:
             c.post(
                 "/v1/customers",
                 headers=h,
-                json={"name": "LT Customer", "phone": "9000000002", "email": f"c-{run}@example.com"},
+                json={
+                    "name": "LT Customer",
+                    "phone": "9000000002",
+                    "email": f"c-{run}@example.com",
+                },
             ),
             201,
         )
