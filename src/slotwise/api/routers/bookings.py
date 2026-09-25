@@ -28,6 +28,7 @@ from slotwise.security.principal import Principal
 from slotwise.services.booking_events import EventedBookingService
 from slotwise.services.bookings import BookingService
 from slotwise.services.idempotency import run_idempotent
+from slotwise.services.quotas import enforce_monthly_bookings
 
 router = APIRouter(prefix="/v1/bookings", tags=["bookings"])
 
@@ -71,6 +72,7 @@ async def create_booking(
     )
 
     async def handler() -> tuple[int, dict[str, Any]]:
+        await enforce_monthly_bookings(session, tenant_of(principal), principal.plan, settings)
         booking = await service_for(session, principal).create(
             principal,
             service_id=body.service_id,

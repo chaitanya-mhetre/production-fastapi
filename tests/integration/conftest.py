@@ -7,6 +7,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
+from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -42,7 +43,10 @@ async def owner_engine(settings: Settings, migrated: None) -> AsyncIterator[Asyn
 
 
 @pytest.fixture(autouse=True)
-async def clean_db(owner_engine: AsyncEngine) -> AsyncIterator[None]:
+async def clean_db(owner_engine: AsyncEngine, settings: Settings) -> AsyncIterator[None]:
+    redis = Redis.from_url(settings.redis_url)
+    await redis.flushdb()  # rate-limit counters and idempotency cache must not leak between tests
+    await redis.aclose()
     async with owner_engine.begin() as conn:
         result = await conn.execute(
             text(

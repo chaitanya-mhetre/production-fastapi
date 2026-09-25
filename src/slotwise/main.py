@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
-from slotwise.api.routers import auth, bookings, catalog, customers, health, tenants
+from slotwise.api.routers import api_keys, auth, bookings, catalog, customers, health, tenants
 from slotwise.config import Settings, get_settings
 from slotwise.context import request_id_var, tenant_id_var
 from slotwise.db import Database
@@ -57,6 +57,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             response = await call_next(request)
             status_code = response.status_code
             response.headers["x-request-id"] = request_id
+            rate = getattr(request.state, "rate_limit", None)
+            if rate is not None:
+                response.headers["X-RateLimit-Limit"] = str(rate.limit)
+                response.headers["X-RateLimit-Remaining"] = str(max(rate.remaining, 0))
+                response.headers["X-RateLimit-Reset"] = str(rate.reset_in)
             return response
         finally:
             log.info(
@@ -76,6 +81,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         headers: dict[str, str] = {}
         if isinstance(exc, RateLimited):
             headers["Retry-After"] = str(exc.retry_after)
+            headers["X-RateLimit-Limit"] = str(exc.limit)
+            headers["X-RateLimit-Remaining"] = "0"
         return JSONResponse(
             _error_body(exc.code, exc.message, exc.details or None),
             status_code=exc.status_code,
@@ -100,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         customers.router,
         catalog.router,
         bookings.router,
+        api_keys.router,
     ):
         app.include_router(router)
     return app

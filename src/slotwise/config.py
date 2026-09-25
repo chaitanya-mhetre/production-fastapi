@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     idempotency_ttl_seconds: int = 24 * 3600
     idempotency_lock_seconds: int = 30
 
+    # Per-tenant request limits for user tokens (API keys carry their own limit), and monthly
+    # booking quotas per plan.
+    rate_limit_per_min_free: int = 120
+    rate_limit_per_min_pro: int = 1200
+    login_attempts_per_min: int = 10
+    monthly_bookings_free: int = 100
+    monthly_bookings_pro: int = 100_000
+
     otel_exporter_otlp_endpoint: str | None = None
     service_name: str = "slotwise-api"
     log_level: str = "INFO"
