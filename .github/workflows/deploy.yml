@@ -1,0 +1,55 @@
+# Manual deploy to AWS. NOT yet run: it needs the infrastructure from cloud-infra-lab (ECR repo,
+# EC2 host with SSM agent, RDS, IAM role for GitHub OIDC). See deploy/aws/README.md.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: this commit). Use an older tag to roll back."
+        required: false
+
+permissions:
+  id-token: write   # GitHub OIDC → short-lived AWS credentials; no long-lived keys in secrets
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: slotwise
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production   # requires manual approval in repo settings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push (skipped when rolling back to an existing tag)
+        if: ${{ !inputs.image_tag }}
+        run: |
+          IMAGE=${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}
+          docker build -t "$IMAGE" . && docker push "$IMAGE"
+      - name: Deploy via SSM
+        env:
+          TAG: ${{ inputs.image_tag || github.sha }}
+        run: |
+          aws ssm send-command \
+            --targets "Key=tag:app,Values=slotwise" \
+            --document-name AWS-RunShellScript \
+            --parameters commands="sudo /opt/slotwise/deploy.sh ${TAG}" \
+            --query Command.CommandId --output text > cmd_id
+          aws ssm wait command-executed --command-id "$(cat cmd_id)" \
+            --instance-id "${{ secrets.SLOTWISE_INSTANCE_ID }}"
+      - uses: astral-sh/setup-uv@v6
+      - name: Post-deploy smoke test
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SLOTWISE_BASE_URL }}
+          SMOKE_SUPERADMIN_EMAIL: ${{ secrets.SMOKE_SUPERADMIN_EMAIL }}
+          SMOKE_SUPERADMIN_PASSWORD: ${{ secrets.SMOKE_SUPERADMIN_PASSWORD }}
+          SMOKE_MOCKPAY_SECRET: ${{ secrets.SMOKE_MOCKPAY_SECRET }}
+        run: uv sync --frozen && uv run python scripts/smoke.py

@@ -1,0 +1,32 @@
+# Production-like single-host layout (low-cost mode). Postgres = RDS, Redis = ElastiCache or a
+# self-hosted container, email = SES SMTP, uploads = S3: all configured through .env.prod.
+x-app: &app
+  image: ${IMAGE}
+  env_file: .env.prod
+  restart: always
+  logging: { driver: awslogs, options: { awslogs-group: /slotwise/prod, awslogs-create-group: "true" } }
+
+services:
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+  api-a: { <<: *app, stop_grace_period: 30s }
+  api-b: { <<: *app, stop_grace_period: 30s }
+  worker:
+    <<: *app
+    command: ["celery", "-A", "slotwise.worker.celery_app", "worker", "--pool", "threads", "--concurrency", "8"]
+    stop_grace_period: 60s
+  beat:
+    <<: *app
+    command: ["celery", "-A", "slotwise.worker.celery_app", "beat", "--schedule", "/tmp/celerybeat-schedule"]
+  relay:
+    <<: *app
+    command: ["python", "-m", "slotwise.outbox.relay"]
+  nginx:
+    image: nginx:1.28-alpine
+    restart: always
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
