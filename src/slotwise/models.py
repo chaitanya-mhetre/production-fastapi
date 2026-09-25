@@ -171,3 +171,49 @@ class TimeOff(Base):
     period: Mapped[Range[datetime]] = mapped_column(TSTZRANGE)
     reason: Mapped[str | None]
     created_at: Mapped[datetime] = created_at_col()
+
+
+class BookingStatus(enum.StrEnum):
+    PENDING_PAYMENT = "pending_payment"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+    COMPLETED = "completed"
+
+    @property
+    def is_active(self) -> bool:
+        """Active bookings hold their slot (mirrors the exclusion constraint's WHERE clause)."""
+        return self in (BookingStatus.PENDING_PAYMENT, BookingStatus.CONFIRMED)
+
+
+class Booking(Base):
+    __tablename__ = "bookings"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("staff.id"))
+    service_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("services.id"))
+    customer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customers.id"))
+    period: Mapped[Range[datetime]] = mapped_column(TSTZRANGE)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[BookingStatus] = mapped_column(pg_enum(BookingStatus, "booking_status"))
+    price_paise: Mapped[int] = mapped_column(BigInteger)
+    notes: Mapped[str | None]
+    version: Mapped[int] = mapped_column(default=1)
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IdempotencyKey(Base):
+    __tablename__ = "idempotency_keys"
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(primary_key=True)
+    request_hash: Mapped[str]
+    response_status: Mapped[int | None]
+    response_body: Mapped[dict[str, Any] | None]
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()

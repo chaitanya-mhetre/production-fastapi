@@ -52,7 +52,7 @@ class MembershipRepository:
             .where(TenantMembership.tenant_id == tenant_id)
             .order_by(User.email)
         )
-        return [(m, u) for m, u in result.tuples()]
+        return [(row[0], row[1]) for row in result]
 
     def add(self, user_id: UUID, tenant_id: UUID, role: Role) -> TenantMembership:
         membership = TenantMembership(user_id=user_id, tenant_id=tenant_id, role=role)

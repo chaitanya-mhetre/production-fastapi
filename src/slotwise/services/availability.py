@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from slotwise.availability import Interval, compute_slots, day_bounds_utc
 from slotwise.errors import NotFound
+from slotwise.repositories.bookings import BookingRepository
 from slotwise.repositories.catalog import ScheduleRepository, ServiceRepository, StaffRepository
 from slotwise.repositories.tenancy import TenantRepository
 
@@ -69,4 +70,9 @@ class AvailabilityService:
                 busy.setdefault(row.staff_id, []).append(
                     Interval(row.period.lower, row.period.upper)
                 )
+        for staff_id, period in await BookingRepository(
+            self.session, self.tenant_id
+        ).reserved_blocks(staff_ids, start, end):
+            if period.lower and period.upper:
+                busy.setdefault(staff_id, []).append(Interval(period.lower, period.upper))
         return busy

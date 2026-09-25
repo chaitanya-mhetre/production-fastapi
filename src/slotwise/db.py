@@ -65,3 +65,14 @@ class Database:
 
     async def dispose(self) -> None:
         await self.engine.dispose()
+
+
+EXCLUSION_VIOLATION = "23P01"
+UNIQUE_VIOLATION = "23505"
+
+
+def sqlstate(exc: BaseException) -> str | None:
+    """The Postgres error code behind a SQLAlchemy DBAPIError, e.g. '23P01'."""
+    orig = getattr(exc, "orig", None)
+    code = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    return str(code) if code else None
