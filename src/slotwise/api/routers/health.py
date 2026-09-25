@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
 from slotwise.api.deps import DbDep
@@ -27,3 +28,9 @@ async def readyz(db: DbDep) -> JSONResponse:
     return JSONResponse(
         {"status": "ok" if ok else "degraded", "checks": checks}, status_code=200 if ok else 503
     )
+
+
+@router.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus scrape endpoint. Nginx only allows it from the internal network."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

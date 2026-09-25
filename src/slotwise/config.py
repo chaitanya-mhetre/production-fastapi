@@ -59,6 +59,8 @@ class Settings(BaseSettings):
 
     otel_exporter_otlp_endpoint: str | None = None
     service_name: str = "slotwise-api"
+    worker_metrics_port: int | None = None  # e.g. 9101: Prometheus endpoint in the worker
+    relay_metrics_port: int | None = None  # e.g. 9102
     log_level: str = "INFO"
 
 

@@ -1,0 +1,28 @@
+# Apps send OTLP/HTTP here; the collector batches and forwards to Jaeger (which speaks OTLP).
+# Swapping Jaeger for Tempo/Honeycomb/Datadog is a config change here, not a code change.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]

@@ -10,9 +10,15 @@ Reliability settings (and why):
   the longest task, or long tasks run twice.
 """
 
+from typing import Any
+
 from celery import Celery
+from celery.signals import worker_init
+from prometheus_client import start_http_server
 
 from slotwise.config import get_settings
+from slotwise.logging_config import configure_logging
+from slotwise.observability.tracing import build_provider, instrument_worker
 
 settings = get_settings()
 
@@ -34,3 +40,19 @@ celery_app.conf.update(
         "purge-idempotency-keys": {"task": "slotwise.purge_idempotency_keys", "schedule": 3600.0},
     },
 )
+
+
+@worker_init.connect
+def _setup_observability(**_: Any) -> None:
+    """Runs once when the worker boots.
+
+    Metrics note: run the worker with `--pool threads` (our tasks are I/O-bound). With the
+    default prefork pool each child process has its own metric registry and this endpoint would
+    only show the parent's. Prefork needs prometheus_client's multiprocess mode instead.
+    """
+    configure_logging(settings.log_level)
+    provider = build_provider(settings, "slotwise-worker")
+    if provider is not None:
+        instrument_worker(provider)
+    if settings.worker_metrics_port:
+        start_http_server(settings.worker_metrics_port)

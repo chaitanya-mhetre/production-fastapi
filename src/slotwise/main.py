@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from opentelemetry.sdk.trace import TracerProvider
 from redis.asyncio import Redis
 
 from slotwise.api.routers import (
@@ -27,6 +28,8 @@ from slotwise.context import request_id_var, tenant_id_var
 from slotwise.db import Database
 from slotwise.errors import AppError, RateLimited
 from slotwise.logging_config import configure_logging
+from slotwise.observability import metrics
+from slotwise.observability.tracing import build_provider, instrument_api
 
 log = logging.getLogger("slotwise.http")
 
@@ -38,16 +41,23 @@ def _error_body(code: str, message: str, details: object = None) -> dict[str, ob
     return {"error": body}
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, *, tracer_provider: TracerProvider | None = None
+) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
+    provider = tracer_provider or build_provider(settings, settings.service_name)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings
         app.state.db = Database(settings.database_url, settings)
         app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+        if provider is not None:
+            instrument_api(app, app.state.db.engine, provider)
         yield
+        if provider is not None:
+            provider.shutdown()  # flush buffered spans before exit
         await app.state.redis.aclose()
         await app.state.db.dispose()
 
@@ -66,6 +76,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             response = await call_next(request)
             status_code = response.status_code
+            # Label by route *template* (/v1/bookings/{booking_id}), never the raw path:
+            # raw paths put every UUID into its own time series and blow up Prometheus.
+            route = request.scope.get("route")
+            template = getattr(route, "path", "unmatched")
+            metrics.HTTP_REQUESTS.labels(request.method, template, str(status_code)).inc()
+            metrics.HTTP_LATENCY.labels(request.method, template).observe(
+                time.perf_counter() - started
+            )
             response.headers["x-request-id"] = request_id
             rate = getattr(request.state, "rate_limit", None)
             if rate is not None:

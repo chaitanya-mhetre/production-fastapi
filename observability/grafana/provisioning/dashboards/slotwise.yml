@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: slotwise
+    folder: Slotwise
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

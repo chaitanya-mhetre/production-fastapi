@@ -1,0 +1,43 @@
+# Example alert rules. Thresholds are starting points, not tuned values: tune them from real
+# traffic (see docs/benchmarks.md) before paging anyone on them.
+groups:
+  - name: slotwise
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m])) > 0.02
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "More than 2% of API requests are failing with 5xx"
+
+      - alert: SlowBookingCreates
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{route="/v1/bookings",method="POST"}[5m]))
+          ) > 0.3
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "p95 booking-create latency above 300 ms"
+
+      - alert: OutboxBacklog
+        expr: outbox_unpublished_count > 1000
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Outbox relay is falling behind (is the relay or broker down?)"
+
+      - alert: OutboxLagHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(outbox_lag_seconds_bucket[5m]))) > 30
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Events take >30s (p95) to leave the outbox"
+
+      - alert: WebhookDeadLetters
+        expr: increase(webhook_delivery_total{result="dead"}[1h]) > 10
+        labels: { severity: ticket }
+        annotations:
+          summary: "Webhook deliveries are being dead-lettered"

@@ -19,6 +19,7 @@ import signal
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+from prometheus_client import start_http_server
 from sqlalchemy import func, select
 
 from slotwise.config import get_settings
@@ -72,6 +73,8 @@ def celery_publisher(event: OutboxEvent) -> None:
 
 async def run_forever(poll_seconds: float = 0.5) -> None:
     settings = get_settings()
+    if settings.relay_metrics_port:
+        start_http_server(settings.relay_metrics_port)
     db = Database(settings.worker_database_url, settings)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
