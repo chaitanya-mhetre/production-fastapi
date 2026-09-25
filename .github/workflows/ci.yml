@@ -54,7 +54,7 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: astral-sh/setup-uv@v6
       - name: Dependency vulnerabilities
-        run: uv export --frozen --no-dev --format requirements-txt > /tmp/req.txt && uvx pip-audit -r /tmp/req.txt
+        run: uv export --frozen --no-dev --no-emit-project --no-hashes --format requirements-txt > /tmp/req.txt && uvx pip-audit -r /tmp/req.txt
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
         env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -t slotwise:${{ github.sha }} .
       - name: Container scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: slotwise:${{ github.sha }}
           severity: CRITICAL,HIGH
