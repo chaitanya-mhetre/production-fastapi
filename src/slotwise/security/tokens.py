@@ -10,7 +10,7 @@ import jwt
 
 from slotwise.config import Settings
 from slotwise.errors import Unauthorized
-from slotwise.models import Role
+from slotwise.models import Role, TenantPlan
 
 ALGORITHM = "HS256"
 
@@ -22,6 +22,7 @@ def create_access_token(
     tenant_id: UUID | None,
     role: Role | None,
     is_superadmin: bool,
+    plan: TenantPlan | None = None,
     now: datetime | None = None,
 ) -> str:
     issued = now or datetime.now(UTC)
@@ -32,6 +33,7 @@ def create_access_token(
         "tid": str(tenant_id) if tenant_id else None,
         "role": role.value if role else None,
         "sa": is_superadmin,
+        "plan": plan.value if plan else None,
         "iat": int(issued.timestamp()),
         "exp": int((issued + timedelta(seconds=settings.access_token_ttl_seconds)).timestamp()),
     }

@@ -8,7 +8,7 @@ from datetime import datetime, time
 from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, Enum, ForeignKey, SmallInteger, Text, Time, func
-from sqlalchemy.dialects.postgresql import CITEXT, JSONB, TSTZRANGE, UUID, Range
+from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, JSONB, TSTZRANGE, UUID, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -216,4 +216,34 @@ class IdempotencyKey(Base):
     response_status: Mapped[int | None]
     response_body: Mapped[dict[str, Any] | None]
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenants.id"))
+    family_id: Mapped[uuid.UUID]
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    replaced_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("refresh_tokens.id"))
+    created_at: Mapped[datetime] = created_at_col()
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
+    name: Mapped[str]
+    prefix: Mapped[str] = mapped_column(unique=True)
+    key_hash: Mapped[str]
+    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    rate_limit_per_min: Mapped[int] = mapped_column(default=600)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = created_at_col()
