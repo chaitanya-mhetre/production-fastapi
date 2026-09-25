@@ -9,8 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
 
-from slotwise.api.routers import auth, catalog, customers, health, tenants
+from slotwise.api.routers import auth, bookings, catalog, customers, health, tenants
 from slotwise.config import Settings, get_settings
 from slotwise.context import request_id_var, tenant_id_var
 from slotwise.db import Database
@@ -35,7 +36,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings
         app.state.db = Database(settings.database_url, settings)
+        app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
         yield
+        await app.state.redis.aclose()
         await app.state.db.dispose()
 
     app = FastAPI(title="Slotwise", version="0.1.0", lifespan=lifespan)
@@ -96,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         tenants.router,
         customers.router,
         catalog.router,
+        bookings.router,
     ):
         app.include_router(router)
     return app
