@@ -107,46 +107,6 @@ async def test_concurrent_requests_for_one_slot_exactly_one_wins(
     assert codes.count(409) == 19, codes
 
 
-async def test_booking_writes_for_one_staff_are_serialised_by_an_advisory_lock(
-    client: httpx.AsyncClient, setup: tuple[TenantCtx, CatalogCtx, str], db: Database
-) -> None:
-    # Found by the k6 booking rush with two API replicas: concurrent INSERTs with overlapping
-    # periods deadlocked inside the exclusion-constraint check (40P01) and came back as 500s.
-    # Bookings for one staff member now take a per-staff advisory lock first. Prove it: while
-    # another transaction holds that lock, a booking request must wait, then succeed.
-    t, c, cust = setup
-    key = f"slotwise:booking:{t.id}:{c.staff_ids[0]}"
-    async with db.session(tenant_id=uuid.UUID(t.id)) as holder, holder.begin():
-        await holder.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": key}
-        )
-        request = asyncio.create_task(
-            client.post("/v1/bookings", headers=t.headers | _key(), json=_body(c, cust))
-        )
-        done, _ = await asyncio.wait({request}, timeout=0.5)
-        assert not done, "booking did not wait for the staff calendar lock"
-    resp = await asyncio.wait_for(request, timeout=10)  # lock released at the holder's COMMIT
-    assert resp.status_code == 201, resp.text
-
-
-async def test_other_staff_are_not_blocked_by_the_lock(
-    client: httpx.AsyncClient, make_tenant: MakeTenant, make_catalog: MakeCatalog, db: Database
-) -> None:
-    t = await make_tenant("acme")
-    c = await make_catalog(t, staff_count=2)
-    cust = await _customer(client, t)
-    key = f"slotwise:booking:{t.id}:{c.staff_ids[0]}"
-    async with db.session(tenant_id=uuid.UUID(t.id)) as holder, holder.begin():
-        await holder.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": key}
-        )
-        resp = await asyncio.wait_for(
-            client.post("/v1/bookings", headers=t.headers | _key(), json=_body(c, cust, staff=1)),
-            timeout=5,
-        )
-        assert resp.status_code == 201, resp.text
-
-
 async def test_different_staff_same_time_is_fine(
     client: httpx.AsyncClient, make_tenant: MakeTenant, make_catalog: MakeCatalog
 ) -> None:

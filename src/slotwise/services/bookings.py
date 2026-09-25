@@ -94,7 +94,7 @@ class BookingService:
                 notes=notes,
             )
         )
-        async with self._overlap_is_409(staff_id):
+        async with self._overlap_is_409():
             await self.session.flush()
         self.audit.record(
             principal,
@@ -123,7 +123,7 @@ class BookingService:
         start = _as_utc(start)
         period, ends_at = await self._validated_period(service, booking.staff_id, start, now)
         old_start = booking.starts_at
-        async with self._overlap_is_409(booking.staff_id):
+        async with self._overlap_is_409():
             updated = await self.bookings.update_versioned(
                 booking_id, version, period=period, starts_at=start, ends_at=ends_at
             )
@@ -247,14 +247,17 @@ class BookingService:
         return Range(start, block_end, bounds="[)"), ends_at
 
     @asynccontextmanager
-    async def _overlap_is_409(self, staff_id: UUID) -> AsyncIterator[None]:
+    async def _overlap_is_409(self) -> AsyncIterator[None]:
         """Write to a staff calendar; an overlap (or an overlap deadlock) becomes 409 slot_taken.
 
-        The per-staff advisory lock prevents the exclusion-check deadlock in the first place (found
-        by the k6 booking rush with two API replicas). 40P01 is still mapped as a safety net: a
-        deadlock here means another transaction was writing an overlapping period for this staff.
+        40P01: two concurrent writes with overlapping periods can each wait on the other's
+        uncommitted row inside the exclusion-constraint check, and Postgres aborts one of them
+        (found by the k6 booking rush with two API replicas, where it surfaced as HTTP 500). The
+        victim lost a race for an overlapping period, which is exactly what slot_taken means.
+        A per-staff advisory lock would prevent the deadlock but was measured to serialise every
+        attempt, including the many that fail fast on an already-committed booking: single-replica
+        rush p95 went from 65 ms to 907 ms (docs/benchmarks.md), so it was reverted.
         """
-        await self.bookings.lock_staff_schedule(staff_id)
         try:
             yield
         except DBAPIError as exc:
