@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+from opentelemetry import propagate, trace
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,7 @@ from slotwise.webhooks.signing import sign
 from slotwise.webhooks.ssrf import UnsafeWebhookTarget, validate_target
 
 log = logging.getLogger("slotwise.worker")
+tracer = trace.get_tracer("slotwise.worker")
 
 MAX_ATTEMPTS = 8  # ~30s, 1m, 2m, 4m, 8m, 16m, 32m, 64m (with jitter) → then dead-letter
 BREAKER_THRESHOLD = 10  # consecutive failures before an endpoint is disabled
@@ -80,6 +82,20 @@ async def dispatch_event(deps: WorkerDeps, event_id: int) -> list[UUID]:
     UNIQUE(endpoint_id, outbox_event_id) stops duplicate deliveries, and the inbox stops
     duplicate emails.
     """
+    async with deps.db.session() as session:
+        carrier = (
+            await session.execute(
+                select(OutboxEvent.trace_context).where(OutboxEvent.id == event_id)
+            )
+        ).scalar_one_or_none()
+    parent = propagate.extract(carrier or {})
+    with tracer.start_as_current_span(
+        "outbox.dispatch", context=parent, attributes={"outbox.event_id": event_id}
+    ):
+        return await _dispatch(deps, event_id)
+
+
+async def _dispatch(deps: WorkerDeps, event_id: int) -> list[UUID]:
     async with deps.db.session() as session, session.begin():
         event = await session.get(OutboxEvent, event_id)
         if event is None:

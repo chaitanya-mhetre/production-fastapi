@@ -29,7 +29,7 @@ from slotwise.db import Database
 from slotwise.errors import AppError, RateLimited
 from slotwise.logging_config import configure_logging
 from slotwise.observability import metrics
-from slotwise.observability.tracing import build_provider, instrument_api
+from slotwise.observability.tracing import build_provider, instrument_clients, instrument_fastapi
 
 log = logging.getLogger("slotwise.http")
 
@@ -54,7 +54,7 @@ def create_app(
         app.state.db = Database(settings.database_url, settings)
         app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
         if provider is not None:
-            instrument_api(app, app.state.db.engine, provider)
+            instrument_clients(app.state.db.engine, provider)
         yield
         if provider is not None:
             provider.shutdown()  # flush buffered spans before exit
@@ -62,6 +62,8 @@ def create_app(
         await app.state.db.dispose()
 
     app = FastAPI(title="Slotwise", version="0.1.0", lifespan=lifespan)
+    if provider is not None:
+        instrument_fastapi(app, provider)
 
     @app.middleware("http")
     async def request_context(

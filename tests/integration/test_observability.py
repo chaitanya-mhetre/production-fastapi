@@ -1,5 +1,6 @@
 """M6 acceptance: metrics exposed, one request = one trace across API and DB, ids in audit."""
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
@@ -43,10 +44,32 @@ async def traced() -> AsyncIterator[tuple[httpx.AsyncClient, InMemorySpanExporte
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     settings = Settings()
     app = create_app(settings, tracer_provider=provider)
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://traced") as c:
-            yield c, exporter
+    # Drive startup through the real ASGI lifespan protocol, exactly as uvicorn does. (Entering
+    # app.router.lifespan_context directly hid a bug where instrumentation added at startup
+    # never ran under uvicorn.)
+    startup_done, shutdown = asyncio.Event(), asyncio.Event()
+    messages = iter([{"type": "lifespan.startup"}])
+
+    async def receive() -> dict[str, str]:
+        try:
+            return next(messages)
+        except StopIteration:
+            await shutdown.wait()
+            return {"type": "lifespan.shutdown"}
+
+    async def send(message: dict[str, object]) -> None:
+        if message["type"] == "lifespan.startup.complete":
+            startup_done.set()
+
+    lifespan = asyncio.create_task(
+        app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+    )  # type: ignore[arg-type]
+    await startup_done.wait()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://traced") as c:
+        yield c, exporter
+    shutdown.set()
+    await lifespan
 
 
 async def test_one_request_is_one_trace_across_api_and_database(
@@ -81,3 +104,69 @@ async def test_one_request_is_one_trace_across_api_and_database(
             )
         ).scalar_one()
     assert stored == format(trace_id, "032x")
+
+
+async def test_outbox_carries_trace_context_to_the_worker(
+    traced: tuple[httpx.AsyncClient, InMemorySpanExporter],
+    make_tenant: MakeTenant,
+    make_catalog: object,
+    settings: Settings,
+) -> None:
+    """The worker's dispatch span continues the trace of the API request that booked."""
+    import random
+
+    from opentelemetry import trace as otel_trace
+
+    from slotwise.db import Database
+    from slotwise.models import OutboxEvent
+    from slotwise.notifications.mailer import RecordingMailer
+    from slotwise.worker import core
+
+    client, exporter = traced
+    t = await make_tenant("acme")
+    c = await make_catalog(t)  # type: ignore[operator]
+    cust = (
+        await client.post(
+            "/v1/customers", headers=t.headers, json={"name": "T", "phone": "9000000077"}
+        )
+    ).json()
+    exporter.clear()
+    await client.post(
+        "/v1/bookings",
+        headers=t.headers | {"Idempotency-Key": "trace-ctx-key"},
+        json={
+            "service_id": c.service_id,
+            "staff_id": c.staff_ids[0],
+            "customer_id": cust["id"],
+            "start": "2030-01-07T10:00:00+05:30",
+        },
+    )
+    [api_span] = [s for s in exporter.get_finished_spans() if s.kind.name == "SERVER"]
+
+    worker_db = Database(settings.worker_database_url, settings, pooled=False)
+    from sqlalchemy import select
+
+    async with worker_db.session() as s:
+        event_id = (await s.execute(select(OutboxEvent.id))).scalar_one()
+    provider = TracerProvider()
+    worker_spans = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(worker_spans))
+    original = core.tracer
+    core.tracer = provider.get_tracer("test")
+    try:
+        async with httpx.AsyncClient() as http:
+            deps = core.WorkerDeps(
+                db=worker_db,
+                http=http,
+                settings=settings,
+                mailer=RecordingMailer(),
+                rng=random.Random(1),
+            )
+            await core.dispatch_event(deps, event_id)
+    finally:
+        core.tracer = original
+        await worker_db.dispose()
+    [dispatch] = worker_spans.get_finished_spans()
+    assert dispatch.name == "outbox.dispatch"
+    assert dispatch.context.trace_id == api_span.context.trace_id
+    assert otel_trace.format_trace_id(dispatch.context.trace_id)

@@ -41,17 +41,25 @@ def build_provider(
     return provider
 
 
-def instrument_api(app: object, engine: AsyncEngine, provider: TracerProvider) -> None:
+def instrument_fastapi(app: object, provider: TracerProvider) -> None:
+    """Must run when the app is created, NOT in the lifespan hook: under uvicorn, Starlette
+    builds its middleware stack on the very first ASGI call (the lifespan startup event), so
+    middleware added during startup is silently never used."""
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    from opentelemetry.instrumentation.redis import RedisInstrumentor
-    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
     FastAPIInstrumentor.instrument_app(
         app,  # type: ignore[arg-type]
         tracer_provider=provider,
         excluded_urls=UNTRACED_URLS,
     )
+
+
+def instrument_clients(engine: AsyncEngine, provider: TracerProvider) -> None:
+    """DB/Redis/httpx client instrumentation: runs in the lifespan, once the engine exists."""
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.redis import RedisInstrumentor
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
     # Async engines are instrumented through their underlying sync engine. skip_dep_check:
     # the instrumentation's declared range stops at SQLAlchemy < 2.1, but the event hooks it
     # uses are unchanged in 2.1. The trace test in tests/integration guards this assumption.

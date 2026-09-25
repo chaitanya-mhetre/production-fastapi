@@ -263,6 +263,7 @@ class OutboxEvent(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(default=0)
     last_error: Mapped[str | None]
+    trace_context: Mapped[dict[str, Any]] = mapped_column(default=dict)
 
 
 class ConsumerInbox(Base):
