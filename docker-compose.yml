@@ -1,11 +1,16 @@
-# Host ports are deliberately in the 5xxxx range so this stack can run next to other local projects.
+# Host ports are deliberately in the 5xxxx/18xxx range so this stack can run next to other
+# local projects.
+#   docker compose up -d                  → postgres, redis, mailpit (for `make run` + tests)
+#   docker compose --profile full up -d   → the whole system incl. api, workers, nginx, observability
 name: slotwise
 
 x-app: &app
   build: .
+  image: slotwise:local
   env_file: .env.docker
+  restart: unless-stopped
   depends_on:
-    postgres: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
     redis: { condition: service_healthy }
 
 services:
@@ -35,6 +40,84 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports: ["58025:8025", "51025:1025"]
+
+  # --- application (profile: full) ---------------------------------------------------------
+
+  migrate:
+    profiles: [full]
+    build: .
+    image: slotwise:local
+    env_file: .env.docker
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    profiles: [full]
+    ports: ["18081:8000"]
+    stop_grace_period: 30s
+
+  worker:
+    <<: *app
+    profiles: [full]
+    command: ["celery", "-A", "slotwise.worker.celery_app", "worker", "--pool", "threads",
+              "--concurrency", "8", "-l", "info"]
+    stop_grace_period: 60s   # let in-flight tasks finish (acks_late covers the rest)
+    healthcheck: { disable: true }
+
+  beat:
+    <<: *app
+    profiles: [full]
+    command: ["celery", "-A", "slotwise.worker.celery_app", "beat", "-l", "info",
+              "--schedule", "/tmp/celerybeat-schedule"]
+    healthcheck: { disable: true }
+
+  relay:
+    <<: *app
+    profiles: [full]
+    command: ["python", "-m", "slotwise.outbox.relay"]
+    healthcheck: { disable: true }
+
+  nginx:
+    profiles: [full]
+    image: nginx:1.28-alpine
+    ports: ["58088:80"]
+    volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    depends_on: [api]
+
+  # --- observability (profile: full) ---------------------------------------------------------
+
+  otel-collector:
+    profiles: [full]
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
+    depends_on: [jaeger]
+
+  jaeger:
+    profiles: [full]
+    image: jaegertracing/all-in-one:latest
+    ports: ["56686:16686"]
+
+  prometheus:
+    profiles: [full]
+    image: prom/prometheus:latest
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["59091:9090"]
+
+  grafana:
+    profiles: [full]
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["53001:3000"]
 
 volumes:
   pgdata:
