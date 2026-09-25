@@ -1,0 +1,18 @@
+# Override for load tests: the minimal app stack, no observability containers (saves ~500 MB RAM).
+#
+#   docker compose -f docker-compose.yml -f loadtest/docker-compose.loadtest.yml --profile full \
+#       up -d postgres redis mailpit migrate api worker relay nginx
+#
+# LOADTEST_TENANT_RPM raises the per-tenant limit for the *capacity* run only, so the app's own
+# rate limiter doesn't dominate what we measure. Leave it unset to test the as-shipped limits.
+x-loadtest-env: &loadtest-env
+  SLOTWISE_OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  SLOTWISE_RATE_LIMIT_PER_MIN_PRO: "${LOADTEST_TENANT_RPM:-1200}"
+
+services:
+  api:
+    environment: *loadtest-env
+  worker:
+    environment: *loadtest-env
+  relay:
+    environment: *loadtest-env
