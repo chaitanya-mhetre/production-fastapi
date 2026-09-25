@@ -2,7 +2,8 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, MutableMapping
+from typing import Any
 
 import httpx
 import pytest
@@ -50,20 +51,20 @@ async def traced() -> AsyncIterator[tuple[httpx.AsyncClient, InMemorySpanExporte
     startup_done, shutdown = asyncio.Event(), asyncio.Event()
     messages = iter([{"type": "lifespan.startup"}])
 
-    async def receive() -> dict[str, str]:
+    async def receive() -> MutableMapping[str, Any]:
         try:
             return next(messages)
         except StopIteration:
             await shutdown.wait()
             return {"type": "lifespan.shutdown"}
 
-    async def send(message: dict[str, object]) -> None:
+    async def send(message: MutableMapping[str, Any]) -> None:
         if message["type"] == "lifespan.startup.complete":
             startup_done.set()
 
     lifespan = asyncio.create_task(
         app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
-    )  # type: ignore[arg-type]
+    )
     await startup_done.wait()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://traced") as c:
