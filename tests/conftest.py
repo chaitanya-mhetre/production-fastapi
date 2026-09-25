@@ -26,6 +26,9 @@ os.environ.update(
         "SLOTWISE_CELERY_BROKER_URL": "memory://",
         "SLOTWISE_WEBHOOK_ALLOW_PRIVATE_TARGETS": "true",
         "SLOTWISE_LOG_LEVEL": "WARNING",
+        # Presigning is pure local crypto (no AWS call), but boto3 still needs *some* credentials.
+        "AWS_ACCESS_KEY_ID": "test-access-key",
+        "AWS_SECRET_ACCESS_KEY": "test-secret-key",
     }
 )
 
