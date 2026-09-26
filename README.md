@@ -131,7 +131,9 @@ Full checklist against the OWASP API Security Top 10, plus known gaps: [`docs/se
 Measured numbers only, with how they were produced: [`docs/benchmarks.md`](docs/benchmarks.md).
 - Availability algorithm, 30 staff × 12 bookings, one day: **median 3.59 ms** (in-memory only, one run on a
   laptop with other workloads active; see the benchmarks doc for the exact command and caveats).
-- API throughput / p95 latency under load: **TBD**. The k6 scenario is written (`loadtest/k6/booking_rush.js`) but hasn't been run.
+- k6 booking rush (single runs on a busy laptop): **one API process handles ~89 rps at p95 41 ms** (booking
+  p95 60 ms, 0 errors) and saturates at ~106 rps, CPU-bound on the single uvicorn process. **Two replicas: 169 rps**
+  at p95 1.27 s (still CPU-bound). The runs also found three bugs (details in the benchmarks doc).
 
 ## Engineering trade-offs
 - **The database enforces correctness** (exclusion constraint, RLS, unique keys) instead of app-level locks,
@@ -146,14 +148,14 @@ Measured numbers only, with how they were produced: [`docs/benchmarks.md`](docs/
 
 ## Limitations
 - Not deployed to AWS yet; zero-downtime deploy and rollback are designed but unverified.
-- No load-test results yet.
+- Load tests are single runs on a busy laptop; per-request CPU cost not yet profiled.
 - Payment provider is a mock; no real gateway integration.
 - Webhook SSRF guard is vulnerable to DNS rebinding (resolve-then-connect); see `docs/security.md`.
 - The worker's Prometheus endpoint requires `--pool threads` (prefork needs multiprocess mode).
 - Local file uploads need an S3-compatible store; MinIO images are no longer freely pullable, so none is bundled.
 
 ## Roadmap
-- Run the k6 booking rush and publish results.
+- Profile per-request CPU (py-spy) and compare `uvicorn --workers N` with N containers.
 - Deploy through `cloud-infra-lab` Terraform; verify rollback.
 - Connect-to-vetted-IP egress for webhooks (close the DNS-rebinding gap).
 - Calendar sync (Google/Outlook) and a real payment gateway.

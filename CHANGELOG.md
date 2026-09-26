@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+### Fixed
+- Postgres `deadlock_detected` (40P01) between concurrent overlapping bookings returned HTTP 500; now 409 `slot_taken`.
+- Nginx per-IP rate limiting answered 503; now 429.
+- k6 script sent Idempotency-Keys shorter than the 8-character minimum.
+### Added
+- Load-test tooling: `loadtest/bootstrap.py`, RAM-guarded `loadtest/run.sh`, minimal-stack and scale compose overrides.
+- First real k6 results in `docs/benchmarks.md` (single API process ~89 rps at p95 41 ms; two replicas 169 rps).
+
 ## [0.1.0] - 2026-09-25
 Milestones, tagged `m1`…`m8`:
 - **m1** tenancy: tenants, users, memberships, login, customers, Postgres RLS, three DB roles, audit log.

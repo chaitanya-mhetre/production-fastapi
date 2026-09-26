@@ -282,10 +282,28 @@ row, no response, lock expired    → take over (the first attempt crashed)
     RDS read replicas; ECS/Kubernetes with autoscaling; a sliding-window or token-bucket limiter; and
     connect-to-IP webhook egress.
 
+26. **How did you load test it, and what was the bottleneck?**
+    k6 with arrival-rate executors (open model: requests keep coming even when the server slows, like real
+    users), a browse scenario plus a contended booking rush. One uvicorn process saturated at ~106 rps with the
+    API at 100% of a core and Postgres at ~30%; a second replica gave 169 rps. So the first limit is API CPU,
+    not the database. Numbers are single runs on a busy laptop (`docs/benchmarks.md`).
+
+27. **Why do closed-model load tests (fixed number of looping users) hide problems?**
+    When the server slows, each virtual user waits, so the request rate drops and latency looks fine
+    (coordinated omission). Arrival-rate executors keep sending at the target rate and report
+    `dropped_iterations` when k6 can't keep up. That's how run 04 exposed saturation.
+
+28. **What went wrong when you scaled to two replicas?**
+    125 HTTP 500s from Postgres deadlocks: two overlapping INSERTs each waited on the other's uncommitted row
+    in the exclusion-constraint check. A per-staff advisory lock removed them but made single-replica booking
+    p95 go from 60 ms to 907 ms, because it serialised even the fast failures. So I reverted it and mapped
+    40P01 to 409: the deadlock victim lost a race for an overlapping slot, which is exactly `slot_taken`.
+    Lesson: measure a fix's cost, not just whether it removes the error.
+
 ---
 
 ## 4. Things to be honest about in an interview
 - Built with AI assistance. Be ready to explain every file anyway, and this guide is how.
-- Not deployed to AWS; no load-test numbers yet. Only the availability micro-benchmark has been measured.
+- Not deployed to AWS. Load-test numbers are single runs on a busy laptop, not a capacity guarantee.
 - The payment provider is a mock.
 - Known security gaps are listed in `docs/security.md`. Bringing them up yourself signals maturity.
